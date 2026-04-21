@@ -1,0 +1,2005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paste a Photo</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: #f0f0f0;
+      font-family: Arial, sans-serif;
+    }
+
+    body.presenting {
+      background: #000;
+    }
+
+    .slide {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    .upload-box {
+      width: 400px;
+      height: 300px;
+      border: 3px dashed #999;
+      border-radius: 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      background: #fff;
+      transition: border-color 0.2s, background 0.2s;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .upload-box:hover {
+      border-color: #4a90d9;
+      background: #f7faff;
+    }
+
+    .upload-box p {
+      color: #888;
+      font-size: 20px;
+      pointer-events: none;
+    }
+
+    .upload-box img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .upload-box.has-image {
+      width: 80vw;
+      height: 70vh;
+      border-style: solid;
+      border-color: #4a90d9;
+      transition: width 0.3s, height 0.3s;
+    }
+
+    .upload-box.fullscreen {
+      width: 100vw;
+      height: 100vh;
+      border: none;
+      border-radius: 0;
+      background: #000;
+    }
+
+    .upload-box.fullscreen img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .toolbar {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      display: none;
+      gap: 8px;
+      z-index: 100;
+    }
+
+    .tool-btn {
+      font-size: 14px;
+      color: #555;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .tool-btn:hover {
+      background: #e8f0fe;
+      border-color: #4a90d9;
+    }
+
+    .tool-btn.active {
+      background: #4a90d9;
+      color: #fff;
+      border-color: #4a90d9;
+    }
+
+    .slide-counter {
+      font-size: 14px;
+      color: #555;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 8px 14px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .nav-btn {
+      font-size: 14px;
+      color: #555;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+
+    .nav-btn:hover {
+      background: #e8f0fe;
+      border-color: #4a90d9;
+    }
+
+    .delete-btn {
+      color: #d9534f;
+      border-color: #d9534f;
+      margin-left: 6px;
+    }
+
+    .delete-btn:hover {
+      background: #fdecea;
+      border-color: #d9534f;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .selection-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      z-index: 10;
+    }
+
+    .clickable-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 11;
+      cursor: pointer;
+    }
+
+    .popup-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.4);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 200;
+    }
+
+    .popup {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px 32px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+
+    .popup p {
+      font-size: 18px;
+      color: #333;
+      margin: 0 0 20px 0;
+    }
+
+    .popup-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .popup-btn {
+      font-size: 16px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+
+    .popup-btn.yes {
+      background: #4a90d9;
+      color: #fff;
+    }
+
+    .popup-btn.done {
+      background: #6fbf73;
+      color: #fff;
+    }
+
+    .popup-btn.no {
+      background: #e0e0e0;
+      color: #333;
+    }
+
+    .popup-btn.end-game {
+      background: #d9534f;
+      color: #fff;
+    }
+
+    .popup-btn:hover {
+      opacity: 0.85;
+    }
+
+    .exit-btn {
+      position: fixed;
+      top: 15px;
+      right: 15px;
+      font-size: 14px;
+      color: #fff;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      z-index: 300;
+      display: none;
+    }
+
+    .exit-btn:hover {
+      background: rgba(0,0,0,0.7);
+    }
+
+    .overview {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #222;
+      display: none;
+      z-index: 400;
+      overflow: auto;
+    }
+
+    .overview.active {
+      display: block;
+    }
+
+    .overview-canvas {
+      position: relative;
+      min-width: 100%;
+      min-height: 100%;
+    }
+
+    .overview-lines {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .tree-thumb {
+      position: absolute;
+      width: 220px;
+      height: 140px;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 3px solid #555;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2;
+    }
+
+    .tree-thumb:hover {
+      border-color: #4a90d9;
+    }
+
+    .tree-thumb.current {
+      border-color: #6fbf73;
+    }
+
+    .tree-thumb img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .tree-thumb .empty-label {
+      color: #888;
+      font-size: 14px;
+    }
+
+    .tree-thumb-id {
+      position: absolute;
+      top: -22px;
+      left: 0;
+      color: #fff;
+      font-size: 13px;
+    }
+
+    .slide-label-input {
+      position: absolute;
+      transform: translate(-50%, 0);
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 14px;
+      border: 1px dashed transparent;
+      border-radius: 4px;
+      padding: 4px 8px;
+      width: 200px;
+      text-align: center;
+      outline: none;
+      z-index: 3;
+    }
+
+    .slide-label-input:hover {
+      border-color: rgba(255,255,255,0.4);
+    }
+
+    .slide-label-input:focus {
+      border-color: #4a90d9;
+      background: rgba(0,0,0,0.85);
+    }
+
+    .overview-close {
+      position: fixed;
+      top: 15px;
+      right: 15px;
+      font-size: 14px;
+      color: #fff;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      z-index: 500;
+    }
+
+    .overview-close:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    .pick-banner {
+      position: fixed;
+      top: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #4a90d9;
+      color: #fff;
+      font-size: 14px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      z-index: 500;
+      display: none;
+    }
+
+    .pick-banner.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="rightToolbar" style="position:fixed; top:15px; right:15px; display:flex; gap:8px; z-index:101; align-items:center;">
+    <div class="tool-btn" id="albumBtn">Album</div>
+    <div class="tool-btn delete-btn" id="deleteAllBtn">Delete All</div>
+    <div class="slide-counter" id="slideCounter" style="display:none;">
+      <button class="nav-btn" id="leoBtn">leo</button>
+      <button class="nav-btn delete-btn" id="deleteBtn">Delete</button>
+    </div>
+    <div class="tool-btn" id="lockInBtn" style="display:none;">Lock In</div>
+    <div class="tool-btn" id="doneBtn" style="display:none;">Play</div>
+  </div>
+  <div class="tool-btn" id="choicesBtn" style="display:none; position:fixed; top:15px; left:50%; transform:translateX(-50%); z-index:101;">Choices</div>
+  <input type="file" id="albumInput" accept="application/json" style="display:none;">
+  <a id="exportLink" style="display:none;"></a>
+  <div id="missingBanner" style="display:none; position:fixed; top:15px; left:50%; transform:translateX(-50%); background:#d9a04a; color:#fff; padding:8px 16px; border-radius:8px; z-index:99; font-size:14px;"></div>
+  <div class="exit-btn" id="exitBtn">Exit</div>
+
+  <div class="overview" id="overview">
+    <div class="overview-canvas" id="overviewCanvas">
+      <svg class="overview-lines" id="overviewLines"></svg>
+    </div>
+    <div class="pick-banner" id="pickBanner">Pick a slide to link this selection to (or Close to cancel)</div>
+    <button class="overview-close" id="overviewClose">Close</button>
+  </div>
+
+  <div id="slidesContainer"></div>
+
+  <script>
+    // ----- Supabase client -----
+    const SUPABASE_URL = 'https://ixquexzeyfwwlanvhgbk.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4cXVleHpleWZ3d2xhbnZoZ2JrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2OTg3MTMsImV4cCI6MjA5MjI3NDcxM30.9dNA30s-y2AusPL7zvccwmOvjc0Mj3jdeRuNDYv0s4Y';
+    const SUPABASE_BUCKET = 'albums';
+    const supa = (window.supabase && window.supabase.createClient)
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+      : null;
+
+    let slides = [];
+    let nextSlideId = 0;
+    let currentSlideId = null;
+    let rootSlideId = null;
+    let presenting = false;
+    let pendingReturnSlideId = null; // slide to return to after the next image upload
+
+    // ----- IndexedDB persistence -----
+    const IDB_NAME = 'paste-photo-game';
+    const IDB_VERSION = 1;
+    let _idbConn = null;
+    let _saveTimer = null;
+    let _restoring = false; // suppress saves during restore
+
+    function idbOpen() {
+      if (_idbConn) return Promise.resolve(_idbConn);
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+          if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
+        };
+        req.onsuccess = () => { _idbConn = req.result; resolve(req.result); };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function scheduleSave() {
+      if (_restoring) return;
+      if (_saveTimer) clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(() => { _saveTimer = null; idbSaveAll().catch(e => console.warn('save failed', e)); }, 250);
+    }
+
+    async function idbSaveAll() {
+      const db = await idbOpen();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(['meta', 'images'], 'readwrite');
+        const meta = tx.objectStore('meta');
+        const images = tx.objectStore('images');
+
+        const metaValue = {
+          nextSlideId,
+          rootSlideId,
+          currentSlideId,
+          slides: slides.map(s => ({
+            id: s.id,
+            label: s.label || '',
+            filename: s.filename || null,
+            exits: s.exits.map(e => ({
+              selectionData: e.selectionData,
+              targetSlideId: e.targetSlideId,
+              endGame: !!e.endGame,
+            })),
+          })),
+        };
+        meta.put(metaValue, 'state');
+
+        // Sync images store: delete entries for slides that no longer exist
+        const existing = new Set(slides.map(s => s.id));
+        const cursor = images.openKeyCursor();
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (c) { if (!existing.has(c.key)) images.delete(c.key); c.continue(); }
+        };
+
+        // Add/update image blobs we currently know about
+        slides.forEach(s => {
+          if (s.imageBlob) images.put(s.imageBlob, s.id);
+        });
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    }
+
+    async function idbLoadAll() {
+      const db = await idbOpen();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(['meta', 'images'], 'readonly');
+        const metaReq = tx.objectStore('meta').get('state');
+        const imageMap = new Map();
+        const imgCursor = tx.objectStore('images').openCursor();
+        imgCursor.onsuccess = () => {
+          const c = imgCursor.result;
+          if (c) { imageMap.set(c.key, c.value); c.continue(); }
+        };
+        tx.oncomplete = () => resolve({ meta: metaReq.result || null, imageMap });
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function idbWipe() {
+      const db = await idbOpen();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(['meta', 'images'], 'readwrite');
+        tx.objectStore('meta').clear();
+        tx.objectStore('images').clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // ----- Bootstrap -----
+    bootstrap();
+    async function bootstrap() {
+      try {
+        const loaded = await idbLoadAll();
+        if (loaded.meta && Array.isArray(loaded.meta.slides) && loaded.meta.slides.length > 0) {
+          restoreFromMeta(loaded.meta, loaded.imageMap);
+          return;
+        }
+      } catch (e) {
+        console.warn('IDB load failed', e);
+      }
+      // Fresh start
+      const first = createSlide();
+      rootSlideId = first.id;
+      goToSlide(first.id);
+      scheduleSave();
+    }
+
+    function restoreFromMeta(meta, imageMap) {
+      _restoring = true;
+      // Clear DOM + state
+      document.getElementById('slidesContainer').innerHTML = '';
+      slides = [];
+      nextSlideId = meta.nextSlideId || 0;
+      rootSlideId = meta.rootSlideId;
+
+      meta.slides.forEach(sd => {
+        const s = createSlide({ id: sd.id, label: sd.label || '', filename: sd.filename || null });
+        s.exits = (sd.exits || []).map(e => ({
+          selectionData: e.selectionData,
+          targetSlideId: e.targetSlideId,
+          endGame: !!e.endGame,
+        }));
+        const blob = imageMap.get(sd.id);
+        if (blob) attachImageBlob(s, blob, sd.filename || null);
+      });
+
+      _restoring = false;
+      const startId = (meta.currentSlideId !== undefined && meta.currentSlideId !== null) ? meta.currentSlideId : rootSlideId;
+      goToSlide(startId);
+      updateMissingBanner();
+      // Show top-right buttons if any slide has an image
+      if (slides.some(s => s.box.querySelector('img'))) {
+        document.getElementById('doneBtn').style.display = 'block';
+        document.getElementById('lockInBtn').style.display = 'block';
+      }
+    }
+
+    function getSlide(id) {
+      return slides.find(s => s.id === id);
+    }
+
+    function createSlide(opts) {
+      opts = opts || {};
+      const id = (opts.id !== undefined && opts.id !== null) ? opts.id : nextSlideId++;
+      if (id >= nextSlideId) nextSlideId = id + 1;
+      const slide = document.createElement('div');
+      slide.className = 'slide';
+      slide.innerHTML = `
+        <div class="toolbar" data-toolbar>
+          <div class="tool-btn" data-select-btn>click o click</div>
+          <div class="tool-btn" data-mode-btn style="display:none;">Rectangle</div>
+        </div>
+        <div class="upload-box" data-box>
+          <p>Paste a photo here</p>
+        </div>
+        <input type="file" data-file-input accept="image/*" style="display:none;">
+      `;
+
+      document.getElementById('slidesContainer').appendChild(slide);
+
+      const state = {
+        id,
+        label: opts.label || '',
+        filename: opts.filename || null,
+        imageBlob: null,
+        objectUrl: null,
+        el: slide,
+        selectMode: false,
+        drawMode: 'rectangle',
+        isDrawing: false,
+        startX: 0,
+        startY: 0,
+        canvas: null,
+        ctx: null,
+        draftBoxRect: null,    // {x,y,w,h} in box pixels while dragging rectangle
+        draftPoints: [],        // points in box pixels while dragging freestyle
+        draftSelection: null,   // image-space selection awaiting popup confirm
+        exits: [],              // [{ selectionData, targetSlideId, endGame? }]
+        box: slide.querySelector('[data-box]'),
+        toolbar: slide.querySelector('[data-toolbar]'),
+        selectBtn: slide.querySelector('[data-select-btn]'),
+        modeBtn: slide.querySelector('[data-mode-btn]'),
+        fileInput: slide.querySelector('[data-file-input]'),
+      };
+
+      slides.push(state);
+      initSlide(state);
+      return state;
+    }
+
+    function initSlide(s) {
+      s.box.addEventListener('click', (e) => {
+        if (!s.box.querySelector('img') && !s.selectMode && !presenting) {
+          s.fileInput.click();
+        }
+      });
+
+      s.fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          const f = e.target.files[0];
+          showImage(s, f, f.name);
+        }
+      });
+
+      document.addEventListener('paste', (e) => {
+        if (currentSlideId !== s.id || presenting) return;
+        const items = e.clipboardData.items;
+        for (const item of items) {
+          if (item.type.startsWith('image/')) {
+            const f = item.getAsFile();
+            const ext = (item.type.split('/')[1] || 'png');
+            showImage(s, f, `pasted-${s.id}.${ext}`);
+            break;
+          }
+        }
+      });
+
+      s.box.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        s.box.style.borderColor = '#4a90d9';
+        s.box.style.background = '#f7faff';
+      });
+
+      s.box.addEventListener('dragleave', () => {
+        s.box.style.borderColor = '';
+        s.box.style.background = '';
+      });
+
+      s.box.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        s.box.style.borderColor = '';
+        s.box.style.background = '';
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          const f = e.dataTransfer.files[0];
+          showImage(s, f, f.name);
+        }
+      });
+
+      s.selectBtn.addEventListener('click', () => {
+        s.selectMode = !s.selectMode;
+        s.selectBtn.classList.toggle('active', s.selectMode);
+
+        if (s.selectMode) {
+          s.modeBtn.style.display = 'block';
+          createCanvas(s);
+          redrawCanvas(s);
+        } else {
+          s.modeBtn.style.display = 'none';
+          if (s.canvas) { s.canvas.remove(); s.canvas = null; s.ctx = null; }
+          s.draftSelection = null;
+          s.draftBoxRect = null;
+          s.draftPoints = [];
+        }
+      });
+
+      s.modeBtn.addEventListener('click', () => {
+        if (s.drawMode === 'rectangle') {
+          s.drawMode = 'freestyle';
+          s.modeBtn.textContent = 'Freestyle';
+        } else {
+          s.drawMode = 'rectangle';
+          s.modeBtn.textContent = 'Rectangle';
+        }
+        s.draftSelection = null;
+        s.draftBoxRect = null;
+        s.draftPoints = [];
+        redrawCanvas(s);
+      });
+    }
+
+    function showImage(s, file, filename) {
+      attachImageBlob(s, file, filename || file.name || `image-${s.id}.png`);
+      scheduleSave();
+
+      // If we were sent here just to upload an image and return, do so now
+      if (pendingReturnSlideId !== null) {
+        const parentId = pendingReturnSlideId;
+        pendingReturnSlideId = null;
+        setTimeout(() => goToSlide(parentId), 250);
+      } else {
+        ensureSelectMode(s);
+      }
+    }
+
+    function attachImageBlob(s, blob, filename) {
+      // Revoke any prior object URL so we don't leak
+      if (s.objectUrl) { try { URL.revokeObjectURL(s.objectUrl); } catch (_) {} s.objectUrl = null; }
+      s.imageBlob = blob;
+      s.filename = filename;
+      s.objectUrl = URL.createObjectURL(blob);
+      s.box.innerHTML = `<img src="${s.objectUrl}" alt="">`;
+      s.box.classList.add('has-image');
+      s.toolbar.style.display = 'flex';
+      document.getElementById('doneBtn').style.display = 'block';
+      document.getElementById('lockInBtn').style.display = 'block';
+      updateCounter();
+      updateMissingBanner();
+    }
+
+    function ensureSelectMode(s) {
+      if (presenting) return;
+      if (!s.box.querySelector('img')) return;
+      if (s.selectMode) return;
+      s.selectMode = true;
+      s.selectBtn.classList.add('active');
+      s.modeBtn.style.display = 'block';
+      // Wait past the .has-image width/height transition (0.3s) so the
+      // canvas pixel buffer is created at the final box size.
+      setTimeout(() => {
+        createCanvas(s);
+        syncCanvasSize(s);
+        redrawCanvas(s);
+      }, 350);
+    }
+
+    function createCanvas(s) {
+      if (s.canvas) s.canvas.remove();
+      s.canvas = document.createElement('canvas');
+      s.canvas.className = 'selection-canvas';
+      s.canvas.width = s.box.offsetWidth;
+      s.canvas.height = s.box.offsetHeight;
+      s.box.appendChild(s.canvas);
+      s.ctx = s.canvas.getContext('2d');
+
+      s.canvas.addEventListener('mousedown', (e) => startDraw(s, e));
+      s.canvas.addEventListener('mousemove', (e) => draw(s, e));
+      s.canvas.addEventListener('mouseup', (e) => endDraw(s, e));
+
+      s.canvas.addEventListener('touchstart', (e) => startDrawTouch(s, e), { passive: false });
+      s.canvas.addEventListener('touchmove', (e) => drawTouch(s, e), { passive: false });
+      s.canvas.addEventListener('touchend', (e) => endDraw(s, e));
+    }
+
+    function getPos(s, e) {
+      const rect = s.box.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    function getImageBounds(box) {
+      const img = box.querySelector('img');
+      if (!img || !img.naturalWidth) return null;
+      const boxW = box.offsetWidth;
+      const boxH = box.offsetHeight;
+      const natW = img.naturalWidth;
+      const natH = img.naturalHeight;
+      const scale = Math.min(boxW / natW, boxH / natH);
+      const imgW = natW * scale;
+      const imgH = natH * scale;
+      return { x: (boxW - imgW) / 2, y: (boxH - imgH) / 2, width: imgW, height: imgH };
+    }
+
+    function boxToImageCoord(box, px, py) {
+      const b = getImageBounds(box);
+      if (!b) return { x: px / box.offsetWidth, y: py / box.offsetHeight };
+      return { x: (px - b.x) / b.width, y: (py - b.y) / b.height };
+    }
+
+    function imageToBoxCoord(box, nx, ny) {
+      const b = getImageBounds(box);
+      if (!b) return { x: nx * box.offsetWidth, y: ny * box.offsetHeight };
+      return { x: nx * b.width + b.x, y: ny * b.height + b.y };
+    }
+
+    function syncCanvasSize(s) {
+      if (!s.canvas) return;
+      const w = s.box.offsetWidth;
+      const h = s.box.offsetHeight;
+      if (s.canvas.width !== w || s.canvas.height !== h) {
+        s.canvas.width = w;
+        s.canvas.height = h;
+      }
+    }
+
+    function startDraw(s, e) {
+      e.preventDefault();
+      syncCanvasSize(s);
+      s.isDrawing = true;
+      const pos = getPos(s, e);
+      s.startX = pos.x;
+      s.startY = pos.y;
+      if (s.drawMode === 'rectangle') {
+        s.draftBoxRect = { x: pos.x, y: pos.y, w: 0, h: 0 };
+      } else {
+        s.draftPoints = [pos];
+      }
+      redrawCanvas(s);
+    }
+
+    function draw(s, e) {
+      if (!s.isDrawing) return;
+      e.preventDefault();
+      const pos = getPos(s, e);
+      if (s.drawMode === 'rectangle') {
+        s.draftBoxRect = {
+          x: Math.min(s.startX, pos.x),
+          y: Math.min(s.startY, pos.y),
+          w: Math.abs(pos.x - s.startX),
+          h: Math.abs(pos.y - s.startY)
+        };
+      } else {
+        s.draftPoints.push(pos);
+      }
+      redrawCanvas(s);
+    }
+
+    function endDraw(s, e) {
+      if (!s.isDrawing) return;
+      s.isDrawing = false;
+
+      let selectionData = null;
+      if (s.drawMode === 'rectangle' && s.draftBoxRect) {
+        const r = s.draftBoxRect;
+        if (r.w > 5 && r.h > 5) {
+          const b = getImageBounds(s.box);
+          if (b) {
+            selectionData = {
+              type: 'rectangle',
+              x: (r.x - b.x) / b.width,
+              y: (r.y - b.y) / b.height,
+              w: r.w / b.width,
+              h: r.h / b.height,
+            };
+          }
+        }
+      } else if (s.drawMode === 'freestyle' && s.draftPoints.length > 2) {
+        selectionData = {
+          type: 'freestyle',
+          points: s.draftPoints.map(p => boxToImageCoord(s.box, p.x, p.y)),
+        };
+      }
+
+      if (selectionData) {
+        s.draftSelection = selectionData;
+        redrawCanvas(s);
+        showPopup(s);
+      } else {
+        // No real drag — was this a click on an existing exit?
+        const hit = exitAtBoxCoords(s, s.startX, s.startY);
+        s.draftBoxRect = null;
+        s.draftPoints = [];
+        redrawCanvas(s);
+        if (hit) showDeleteExitPopup(s, hit);
+      }
+    }
+
+    function exitAtBoxCoords(s, x, y) {
+      if (!s.exits || s.exits.length === 0) return null;
+      // Use a temporary canvas context to do path hit-testing
+      const ctx = s.ctx;
+      if (!ctx) return null;
+      for (const exit of s.exits) {
+        const sd = exit.selectionData;
+        if (!sd) continue;
+        if (sd.type === 'rectangle') {
+          const b = getImageBounds(s.box);
+          if (!b) continue;
+          const ex = sd.x * b.width + b.x;
+          const ey = sd.y * b.height + b.y;
+          const ew = sd.w * b.width;
+          const eh = sd.h * b.height;
+          if (x >= ex && x <= ex + ew && y >= ey && y <= ey + eh) return exit;
+        } else if (sd.type === 'freestyle') {
+          ctx.beginPath();
+          const p0 = imageToBoxCoord(s.box, sd.points[0].x, sd.points[0].y);
+          ctx.moveTo(p0.x, p0.y);
+          for (let i = 1; i < sd.points.length; i++) {
+            const pi = imageToBoxCoord(s.box, sd.points[i].x, sd.points[i].y);
+            ctx.lineTo(pi.x, pi.y);
+          }
+          ctx.closePath();
+          if (ctx.isPointInPath(x, y)) return exit;
+        }
+      }
+      return null;
+    }
+
+    function showDeleteExitPopup(s, exit) {
+      const target = exit.endGame
+        ? 'end game'
+        : (() => { const t = getSlide(exit.targetSlideId); return (t && t.label) ? t.label : `#${exit.targetSlideId}`; })();
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      overlay.innerHTML = `
+        <div class="popup">
+          <p>Delete this selection (→ ${target})?</p>
+          <div class="popup-buttons">
+            <button class="popup-btn cancel">Cancel</button>
+            <button class="popup-btn end-game">Delete</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('.popup-btn.end-game').addEventListener('click', () => {
+        overlay.remove();
+        s.exits = s.exits.filter(e => e !== exit);
+        redrawCanvas(s);
+        scheduleSave();
+      });
+    }
+
+    function startDrawTouch(s, e) {
+      e.preventDefault();
+      const t = e.touches[0];
+      startDraw(s, { clientX: t.clientX, clientY: t.clientY, preventDefault() {} });
+    }
+
+    function drawTouch(s, e) {
+      e.preventDefault();
+      const t = e.touches[0];
+      draw(s, { clientX: t.clientX, clientY: t.clientY, preventDefault() {} });
+    }
+
+    function redrawCanvas(s) {
+      if (!s.ctx) return;
+      s.ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
+
+      // Existing exits drawn faintly with their target slide's label
+      s.exits.forEach(exit => {
+        drawShape(s.ctx, s.box, exit.selectionData, '#4a90d9', 0.6, true);
+        let text;
+        if (exit.endGame) {
+          text = 'end game';
+        } else {
+          const target = getSlide(exit.targetSlideId);
+          text = (target && target.label) ? target.label : `#${exit.targetSlideId}`;
+        }
+        const center = shapeCenterBoxCoords(s.box, exit.selectionData);
+        if (center) drawLabelBubble(s.ctx, center.x, center.y, text);
+      });
+
+      // Draft (in-progress or pending popup) drawn brightly
+      if (s.draftSelection) {
+        drawShape(s.ctx, s.box, s.draftSelection, '#4a90d9', 1.0, true);
+      } else if (s.isDrawing) {
+        if (s.drawMode === 'rectangle' && s.draftBoxRect) {
+          drawRectBox(s.ctx, s.draftBoxRect, '#4a90d9', 1.0);
+        } else if (s.drawMode === 'freestyle' && s.draftPoints.length > 1) {
+          drawFreestyleBoxPoints(s.ctx, s.draftPoints, '#4a90d9', 1.0);
+        }
+      }
+    }
+
+    function shapeCenterBoxCoords(box, sd) {
+      if (sd.type === 'rectangle') {
+        const b = getImageBounds(box);
+        if (!b) return null;
+        return {
+          x: (sd.x + sd.w / 2) * b.width + b.x,
+          y: (sd.y + sd.h / 2) * b.height + b.y,
+        };
+      } else if (sd.type === 'freestyle') {
+        let sx = 0, sy = 0;
+        sd.points.forEach(p => { sx += p.x; sy += p.y; });
+        const cx = sx / sd.points.length;
+        const cy = sy / sd.points.length;
+        return imageToBoxCoord(box, cx, cy);
+      }
+      return null;
+    }
+
+    function drawLabelBubble(ctx, x, y, text) {
+      ctx.save();
+      ctx.font = '14px Arial';
+      const metrics = ctx.measureText(text);
+      const padX = 8, padY = 4;
+      const w = metrics.width + padX * 2;
+      const h = 22;
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeStyle = '#4a90d9';
+      ctx.lineWidth = 1;
+      const left = x - w / 2;
+      const top = y - h / 2;
+      ctx.beginPath();
+      ctx.rect(left, top, w, h);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#333';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x, y);
+      ctx.restore();
+    }
+
+    function drawShape(ctx, box, sd, color, alpha, fill) {
+      if (sd.type === 'rectangle') {
+        const b = getImageBounds(box);
+        if (!b) return;
+        const x = sd.x * b.width + b.x;
+        const y = sd.y * b.height + b.y;
+        const w = sd.w * b.width;
+        const h = sd.h * b.height;
+        drawRectBox(ctx, { x, y, w, h }, color, alpha, fill);
+      } else if (sd.type === 'freestyle') {
+        ctx.beginPath();
+        sd.points.forEach((p, i) => {
+          const pos = imageToBoxCoord(box, p.x, p.y);
+          if (i === 0) ctx.moveTo(pos.x, pos.y);
+          else ctx.lineTo(pos.x, pos.y);
+        });
+        ctx.closePath();
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (fill) {
+          ctx.fillStyle = color;
+          ctx.globalAlpha = alpha * 0.18;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawRectBox(ctx, r, color, alpha, fill = true) {
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+      if (fill) {
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha * 0.18;
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawFreestyleBoxPoints(ctx, pts, color, alpha) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    function showPopup(s) {
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      overlay.innerHTML = `
+        <div class="popup">
+          <p>Where should this selection lead?</p>
+          <div class="popup-buttons">
+            <button class="popup-btn cancel">Cancel</button>
+            <button class="popup-btn end-game">End Game</button>
+            <button class="popup-btn choose">Choose existing slide</button>
+            <button class="popup-btn make-new">Make a new one</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector('.popup-btn.make-new').addEventListener('click', () => {
+        overlay.remove();
+        addExitAndCreateChild(s, true);
+      });
+      overlay.querySelector('.popup-btn.choose').addEventListener('click', () => {
+        overlay.remove();
+        startPickingExistingSlide(s);
+      });
+      overlay.querySelector('.popup-btn.end-game').addEventListener('click', () => {
+        overlay.remove();
+        s.exits.push({
+          selectionData: s.draftSelection,
+          targetSlideId: null,
+          endGame: true,
+        });
+        s.draftSelection = null;
+        s.draftBoxRect = null;
+        s.draftPoints = [];
+        redrawCanvas(s);
+        scheduleSave();
+      });
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => {
+        overlay.remove();
+        s.draftSelection = null;
+        s.draftBoxRect = null;
+        s.draftPoints = [];
+        redrawCanvas(s);
+      });
+    }
+
+    let pickingForSlide = null; // when set, leo thumbnail clicks pick a target
+    let playbackPath = [];      // ids visited during the most recent playthrough
+    let lockedSession = false;  // true if the current/most-recent play was Lock In
+
+    function startPickingExistingSlide(s) {
+      pickingForSlide = s;
+      showOverview();
+    }
+
+    function pickSlideAsTarget(targetId) {
+      const s = pickingForSlide;
+      pickingForSlide = null;
+      document.getElementById('overview').classList.remove('active');
+      if (!s || !s.draftSelection) return;
+      s.exits.push({
+        selectionData: s.draftSelection,
+        targetSlideId: targetId,
+      });
+      s.draftSelection = null;
+      s.draftBoxRect = null;
+      s.draftPoints = [];
+      // Stay on the slide we were editing
+      goToSlide(s.id);
+      redrawCanvas(s);
+      scheduleSave();
+    }
+
+    function cancelPicking() {
+      if (!pickingForSlide) return;
+      const s = pickingForSlide;
+      pickingForSlide = null;
+      // Discard the draft selection
+      s.draftSelection = null;
+      s.draftBoxRect = null;
+      s.draftPoints = [];
+      redrawCanvas(s);
+    }
+
+    function addExitAndCreateChild(s, returnAfterImage) {
+      const child = createSlide();
+      s.exits.push({
+        selectionData: s.draftSelection,
+        targetSlideId: child.id,
+      });
+      s.draftSelection = null;
+      s.draftBoxRect = null;
+      s.draftPoints = [];
+      redrawCanvas(s);
+      scheduleSave();
+
+      if (returnAfterImage) {
+        pendingReturnSlideId = s.id;
+      }
+      goToSlide(child.id);
+    }
+
+    // ----- Presentation -----
+    document.getElementById('doneBtn').addEventListener('click', () => enterPresentation(false));
+    document.getElementById('lockInBtn').addEventListener('click', () => enterPresentation(true));
+    document.getElementById('exitBtn').addEventListener('click', exitPresentation);
+
+    document.getElementById('choicesBtn').addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      // Skip index 0 (the starting slide — wasn't a choice).
+      // Each remaining entry is a selection the player clicked, labeled by
+      // the slide they landed on.
+      const choices = playbackPath.slice(1);
+      const items = choices.map((id, i) => {
+        const s = getSlide(id);
+        const label = s && s.label ? s.label : `#${id}`;
+        return `<div style="padding:6px 0; border-bottom:1px solid #eee;"><strong>${i + 1}:</strong> ${escapeHtml(label)}</div>`;
+      }).join('');
+      overlay.innerHTML = `
+        <div class="popup" style="text-align:left; max-width:400px;">
+          <p style="text-align:center;">Choices made</p>
+          <div style="max-height:50vh; overflow:auto;">${items || '<div style="color:#888; text-align:center;">No choices recorded</div>'}</div>
+          <div class="popup-buttons" style="margin-top:16px;">
+            <button class="popup-btn cancel">Close</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+    });
+
+    function enterPresentation(locked) {
+      presenting = true;
+      lockedSession = !!locked;
+      playbackPath = [];
+      document.body.classList.add('presenting');
+      document.getElementById('doneBtn').style.display = 'none';
+      document.getElementById('lockInBtn').style.display = 'none';
+      document.getElementById('choicesBtn').style.display = 'none';
+      document.getElementById('slideCounter').style.display = 'none';
+      document.getElementById('rightToolbar').style.display = 'none';
+      document.getElementById('exitBtn').style.display = locked ? 'none' : 'block';
+
+      slides.forEach(s => {
+        s.toolbar.style.display = 'none';
+        s.box.classList.add('fullscreen');
+        if (s.canvas) { s.canvas.remove(); s.canvas = null; s.ctx = null; }
+        s.selectMode = false;
+        s.selectBtn.classList.remove('active');
+        s.modeBtn.style.display = 'none';
+      });
+
+      goToSlide(rootSlideId);
+    }
+
+    function exitPresentation() {
+      presenting = false;
+      document.body.classList.remove('presenting');
+      document.getElementById('doneBtn').style.display = 'block';
+      document.getElementById('lockInBtn').style.display = 'block';
+      document.getElementById('exitBtn').style.display = 'none';
+      document.getElementById('choicesBtn').style.display = lockedSession ? 'block' : 'none';
+      document.getElementById('rightToolbar').style.display = 'flex';
+      updateCounter();
+
+      slides.forEach(s => {
+        s.box.classList.remove('fullscreen');
+        s.box.querySelectorAll('.clickable-canvas').forEach(el => el.remove());
+      });
+
+      goToSlide(currentSlideId);
+    }
+
+    function addClickableArea(s) {
+      s.box.querySelectorAll('.clickable-canvas').forEach(el => el.remove());
+      if (!s.exits || s.exits.length === 0) return;
+
+      const c = document.createElement('canvas');
+      c.className = 'clickable-canvas';
+      c.width = s.box.offsetWidth;
+      c.height = s.box.offsetHeight;
+      s.box.appendChild(c);
+      const cCtx = c.getContext('2d');
+
+      function buildPath(exit) {
+        cCtx.beginPath();
+        if (exit.selectionData.type === 'rectangle') {
+          const b = getImageBounds(s.box);
+          if (!b) return;
+          const x = exit.selectionData.x * b.width + b.x;
+          const y = exit.selectionData.y * b.height + b.y;
+          const w = exit.selectionData.w * b.width;
+          const h = exit.selectionData.h * b.height;
+          cCtx.rect(x, y, w, h);
+        } else if (exit.selectionData.type === 'freestyle') {
+          const pts = exit.selectionData.points;
+          const p0 = imageToBoxCoord(s.box, pts[0].x, pts[0].y);
+          cCtx.moveTo(p0.x, p0.y);
+          for (let i = 1; i < pts.length; i++) {
+            const pi = imageToBoxCoord(s.box, pts[i].x, pts[i].y);
+            cCtx.lineTo(pi.x, pi.y);
+          }
+          cCtx.closePath();
+        }
+      }
+
+      function exitAt(x, y) {
+        for (const exit of s.exits) {
+          buildPath(exit);
+          if (cCtx.isPointInPath(x, y)) return exit;
+        }
+        return null;
+      }
+
+      function handleExitClick(exit) {
+        if (!exit) return;
+        if (exit.endGame) exitPresentation();
+        else goToSlide(exit.targetSlideId);
+      }
+      c.addEventListener('click', (e) => {
+        const rect = c.getBoundingClientRect();
+        handleExitClick(exitAt(e.clientX - rect.left, e.clientY - rect.top));
+      });
+      c.addEventListener('touchend', (e) => {
+        const t = e.changedTouches[0];
+        const rect = c.getBoundingClientRect();
+        handleExitClick(exitAt(t.clientX - rect.left, t.clientY - rect.top));
+      });
+    }
+
+    // ----- Navigation -----
+    function goToSlide(id) {
+      slides.forEach(s => {
+        s.el.classList.toggle('active', s.id === id);
+        if (!presenting) {
+          s.toolbar.style.display = (s.id === id && s.box.querySelector('img')) ? 'flex' : 'none';
+        }
+      });
+      currentSlideId = id;
+      if (!presenting) { updateCounter(); scheduleSave(); }
+
+      if (presenting) {
+        if (playbackPath[playbackPath.length - 1] !== id) playbackPath.push(id);
+        requestAnimationFrame(() => {
+          const s = getSlide(id);
+          if (s) addClickableArea(s);
+        });
+      } else {
+        const s = getSlide(id);
+        if (s) ensureSelectMode(s);
+      }
+    }
+
+    function updateCounter() {
+      const counter = document.getElementById('slideCounter');
+      const hasAnyImage = slides.some(s => s.box.querySelector('img'));
+      counter.style.display = hasAnyImage ? 'flex' : 'none';
+    }
+
+    // ----- Leo (tree overview) -----
+    document.getElementById('leoBtn').addEventListener('click', showOverview);
+    document.getElementById('overviewClose').addEventListener('click', () => {
+      if (pickingForSlide) cancelPicking();
+      document.getElementById('overview').classList.remove('active');
+    });
+
+    function showOverview() {
+      const overview = document.getElementById('overview');
+      const canvas = document.getElementById('overviewCanvas');
+      const lines = document.getElementById('overviewLines');
+
+      // Clear previous
+      canvas.querySelectorAll('.tree-thumb, .slide-label-input').forEach(el => el.remove());
+      lines.innerHTML = '';
+
+      const W = 220, H = 140;
+      const HGAP = 50, VGAP = 100;
+
+      // Layered DAG layout (cheap Sugiyama-ish):
+      //  1. DFS from root to identify back-edges (edges to ancestors in stack)
+      //  2. On the remaining forward DAG, assign each slide a layer = longest
+      //     forward-path from a source. Topological order via Kahn's algorithm.
+      //  3. Within each layer, order slides by the barycenter (mean x) of
+      //     their forward parents to reduce edge crossings.
+      const tree = (function layoutLayered() {
+        const allIds = slides.map(s => s.id);
+        const inStack = new Set();
+        const seen = new Set();
+        const backEdges = new Set();
+
+        function dfs(id) {
+          if (seen.has(id)) return;
+          seen.add(id);
+          inStack.add(id);
+          const s = getSlide(id);
+          if (s) {
+            s.exits.forEach(e => {
+              if (e.targetSlideId == null) return; // end-game exits
+              if (inStack.has(e.targetSlideId)) {
+                backEdges.add(id + '->' + e.targetSlideId);
+              } else {
+                dfs(e.targetSlideId);
+              }
+            });
+          }
+          inStack.delete(id);
+        }
+        dfs(rootSlideId);
+        // Walk any orphan subgraphs too
+        allIds.forEach(id => { if (!seen.has(id)) dfs(id); });
+
+        // Build forward adjacency (excluding back-edges)
+        const fwdChildren = new Map();
+        const fwdParents = new Map();
+        allIds.forEach(id => { fwdChildren.set(id, []); fwdParents.set(id, []); });
+        allIds.forEach(id => {
+          const s = getSlide(id);
+          if (!s) return;
+          s.exits.forEach(e => {
+            if (e.targetSlideId == null) return; // end-game exits
+            const key = id + '->' + e.targetSlideId;
+            if (backEdges.has(key)) return;
+            if (!fwdChildren.get(id).includes(e.targetSlideId)) {
+              fwdChildren.get(id).push(e.targetSlideId);
+              fwdParents.get(e.targetSlideId).push(id);
+            }
+          });
+        });
+
+        // Topological order (Kahn)
+        const indeg = new Map();
+        allIds.forEach(id => indeg.set(id, fwdParents.get(id).length));
+        const queue = allIds.filter(id => indeg.get(id) === 0);
+        const topo = [];
+        while (queue.length > 0) {
+          const id = queue.shift();
+          topo.push(id);
+          fwdChildren.get(id).forEach(cid => {
+            indeg.set(cid, indeg.get(cid) - 1);
+            if (indeg.get(cid) === 0) queue.push(cid);
+          });
+        }
+
+        // Longest forward-path layer for each slide
+        const layerOf = new Map();
+        topo.forEach(id => {
+          const parents = fwdParents.get(id);
+          if (parents.length === 0) {
+            layerOf.set(id, 0);
+          } else {
+            let m = -1;
+            parents.forEach(pid => {
+              if (layerOf.has(pid) && layerOf.get(pid) > m) m = layerOf.get(pid);
+            });
+            layerOf.set(id, m + 1);
+          }
+        });
+
+        // Group by layer
+        const byLayer = new Map();
+        let maxLayer = 0;
+        allIds.forEach(id => {
+          const l = layerOf.get(id) ?? 0;
+          if (!byLayer.has(l)) byLayer.set(l, []);
+          byLayer.get(l).push(id);
+          if (l > maxLayer) maxLayer = l;
+        });
+
+        // Order each layer using parent barycenter; assign evenly-spaced x
+        const xOf = new Map();
+        for (let l = 0; l <= maxLayer; l++) {
+          const ids = byLayer.get(l) || [];
+          if (l === 0) {
+            ids.sort((a, b) => a - b);
+          } else {
+            const scored = ids.map(id => {
+              const parentXs = fwdParents.get(id)
+                .map(pid => xOf.get(pid))
+                .filter(x => x !== undefined);
+              const bary = parentXs.length > 0
+                ? parentXs.reduce((a, b) => a + b, 0) / parentXs.length
+                : 0;
+              return { id, bary };
+            });
+            scored.sort((a, b) => a.bary - b.bary || a.id - b.id);
+            ids.length = 0;
+            scored.forEach(e => ids.push(e.id));
+          }
+          ids.forEach((id, i) => xOf.set(id, i * (W + HGAP)));
+        }
+
+        // Center each layer against the widest one
+        let maxLayerWidth = 0;
+        for (let l = 0; l <= maxLayer; l++) {
+          const ids = byLayer.get(l) || [];
+          const w = ids.length > 0 ? (ids.length - 1) * (W + HGAP) + W : 0;
+          if (w > maxLayerWidth) maxLayerWidth = w;
+        }
+        for (let l = 0; l <= maxLayer; l++) {
+          const ids = byLayer.get(l) || [];
+          const w = ids.length > 0 ? (ids.length - 1) * (W + HGAP) + W : 0;
+          const offset = (maxLayerWidth - w) / 2;
+          ids.forEach(id => xOf.set(id, xOf.get(id) + offset));
+        }
+
+        const nodes = allIds.map(id => ({
+          id,
+          x: xOf.get(id),
+          depth: layerOf.get(id) ?? 0,
+        }));
+        return { nodes, width: maxLayerWidth };
+      })();
+
+      // Compute max depth so we can flip Y (root at bottom)
+      let maxDepth = 0;
+      tree.nodes.forEach(n => { if (n.depth > maxDepth) maxDepth = n.depth; });
+
+      const PAD_X = 40, PAD_TOP = 40, PAD_BOTTOM = 40;
+      // Shift x so all positions are >= 0
+      let minX = Infinity;
+      tree.nodes.forEach(n => { if (n.x < minX) minX = n.x; });
+      const offsetX = PAD_X - minX;
+
+      // Build a map id -> {x,y,depth} for line drawing
+      const positions = {};
+      tree.nodes.forEach(n => {
+        const x = n.x + offsetX;
+        const y = PAD_TOP + (maxDepth - n.depth) * (H + VGAP);
+        positions[n.id] = { x, y, depth: n.depth };
+      });
+
+      const totalW = tree.width + PAD_X * 2;
+      const totalH = (maxDepth + 1) * (H + VGAP) - VGAP + PAD_TOP + PAD_BOTTOM + H;
+      canvas.style.width = totalW + 'px';
+      canvas.style.height = totalH + 'px';
+      lines.setAttribute('width', totalW);
+      lines.setAttribute('height', totalH);
+
+      // Draw edges. Forward edges (target deeper than source) go from source's
+      // top to target's bottom (root at bottom, so "next" goes up). Back/cross
+      // edges (target at same or lower depth) go from source's bottom to
+      // target's top, drawn dashed and a different color so they read as
+      // back-references.
+      Object.keys(positions).forEach(idStr => {
+        const id = Number(idStr);
+        const s = getSlide(id);
+        if (!s) return;
+        s.exits.forEach(exit => {
+          const a = positions[id];
+          const b = positions[exit.targetSlideId];
+          if (!a || !b) return;
+
+          const isForward = b.depth > a.depth;
+          const x1 = a.x + W / 2;
+          const x2 = b.x + W / 2;
+          const y1 = isForward ? a.y : a.y + H;
+          const y2 = isForward ? b.y + H : b.y;
+
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', x1);
+          line.setAttribute('y1', y1);
+          line.setAttribute('x2', x2);
+          line.setAttribute('y2', y2);
+          line.setAttribute('stroke', isForward ? '#4a90d9' : '#d9a04a');
+          line.setAttribute('stroke-width', '3');
+          if (!isForward) line.setAttribute('stroke-dasharray', '6,4');
+          lines.appendChild(line);
+        });
+      });
+
+      // Draw thumbs
+      tree.nodes.forEach(n => {
+        const s = getSlide(n.id);
+        if (!s) return;
+        const p = positions[n.id];
+        const thumb = document.createElement('div');
+        thumb.className = 'tree-thumb';
+        if (n.id === currentSlideId) thumb.classList.add('current');
+        thumb.style.left = p.x + 'px';
+        thumb.style.top = p.y + 'px';
+
+        const idLabel = document.createElement('div');
+        idLabel.className = 'tree-thumb-id';
+        idLabel.textContent = `#${n.id}`;
+        thumb.appendChild(idLabel);
+
+        const img = s.box.querySelector('img');
+        if (img) {
+          const tImg = document.createElement('img');
+          tImg.src = img.src;
+          thumb.appendChild(tImg);
+        } else {
+          const empty = document.createElement('div');
+          empty.className = 'empty-label';
+          empty.textContent = 'empty';
+          thumb.appendChild(empty);
+        }
+
+        thumb.addEventListener('click', () => {
+          if (pickingForSlide) {
+            pickSlideAsTarget(n.id);
+          } else {
+            overview.classList.remove('active');
+            goToSlide(n.id);
+          }
+        });
+        canvas.appendChild(thumb);
+
+        // Editable slide label below the thumb
+        const labelInput = document.createElement('input');
+        labelInput.className = 'slide-label-input';
+        labelInput.type = 'text';
+        labelInput.placeholder = 'label';
+        labelInput.value = s.label;
+        labelInput.style.left = (p.x + W / 2) + 'px';
+        labelInput.style.top = (p.y + H + 8) + 'px';
+        labelInput.addEventListener('input', (e) => { s.label = e.target.value; scheduleSave(); });
+        labelInput.addEventListener('click', (e) => e.stopPropagation());
+        canvas.appendChild(labelInput);
+      });
+
+      document.getElementById('pickBanner').classList.toggle('active', !!pickingForSlide);
+      overview.classList.add('active');
+    }
+
+    // ----- Delete -----
+    document.getElementById('deleteBtn').addEventListener('click', () => {
+      if (slides.length <= 1) return;
+      if (currentSlideId === rootSlideId) return; // don't delete root for now
+
+      const id = currentSlideId;
+      // Find parent + remove the exit pointing here
+      const parent = slides.find(s => s.exits.some(e => e.targetSlideId === id));
+      if (parent) {
+        parent.exits = parent.exits.filter(e => e.targetSlideId !== id);
+      }
+
+      // Collect ids to delete: this slide and its descendants
+      const toDelete = new Set();
+      function collect(nid) {
+        if (toDelete.has(nid)) return;
+        toDelete.add(nid);
+        const s = getSlide(nid);
+        if (!s) return;
+        s.exits.forEach(e => collect(e.targetSlideId));
+      }
+      collect(id);
+
+      toDelete.forEach(did => {
+        const s = getSlide(did);
+        if (s) {
+          if (s.objectUrl) { try { URL.revokeObjectURL(s.objectUrl); } catch (_) {} }
+          s.el.remove();
+        }
+      });
+      slides = slides.filter(s => !toDelete.has(s.id));
+
+      // Go to parent or root
+      goToSlide(parent ? parent.id : rootSlideId);
+      scheduleSave();
+    });
+
+function attachMissingPhotos(imageFiles) {
+      const imgByName = new Map();
+      imageFiles.forEach(f => imgByName.set(f.name.toLowerCase(), f));
+      let attached = 0;
+      slides.forEach(s => {
+        if (!s.imageBlob && s.filename) {
+          const f = imgByName.get(s.filename.toLowerCase());
+          if (f) { attachImageBlob(s, f, s.filename); attached++; }
+        }
+      });
+      updateMissingBanner();
+      if (attached > 0) scheduleSave();
+    }
+
+    function updateMissingBanner() {
+      const missing = slides.filter(s => !s.imageBlob && s.filename);
+      const banner = document.getElementById('missingBanner');
+      if (missing.length === 0) {
+        banner.style.display = 'none';
+      } else {
+        banner.style.display = 'block';
+        banner.textContent = `${missing.length} photo${missing.length === 1 ? '' : 's'} missing — drag matching files (${missing.slice(0, 3).map(s => s.filename).join(', ')}${missing.length > 3 ? '…' : ''}) onto the page or use Import.`;
+      }
+    }
+
+    // ----- Delete All -----
+    document.getElementById('deleteAllBtn').addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      overlay.innerHTML = `
+        <div class="popup">
+          <p>Delete every slide and start over?</p>
+          <div class="popup-buttons">
+            <button class="popup-btn cancel">Cancel</button>
+            <button class="popup-btn end-game">Delete All</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('.popup-btn.end-game').addEventListener('click', async () => {
+        overlay.remove();
+        await wipeEverything();
+      });
+    });
+
+    async function wipeEverything() {
+      _restoring = true;
+      try { await idbWipe(); } catch (e) { console.warn('idbWipe failed', e); }
+      slides.forEach(s => { if (s.objectUrl) { try { URL.revokeObjectURL(s.objectUrl); } catch (_) {} } });
+      document.getElementById('slidesContainer').innerHTML = '';
+      slides = [];
+      nextSlideId = 0;
+      currentSlideId = null;
+      rootSlideId = null;
+      document.getElementById('doneBtn').style.display = 'none';
+      document.getElementById('lockInBtn').style.display = 'none';
+      document.getElementById('choicesBtn').style.display = 'none';
+      _restoring = false;
+      const first = createSlide();
+      rootSlideId = first.id;
+      goToSlide(first.id);
+      updateMissingBanner();
+      updateCounter();
+      scheduleSave();
+    }
+
+    // ----- Album (single self-contained file with images embedded) -----
+    document.getElementById('albumBtn').addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      overlay.innerHTML = `
+        <div class="popup">
+          <p>Album</p>
+          <div class="popup-buttons" style="flex-wrap:wrap;">
+            <button class="popup-btn cancel">Cancel</button>
+            <button class="popup-btn make-new" id="saveSiteBtn">Upload to Site</button>
+            <button class="popup-btn choose" id="browseSiteBtn">Browse Site</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('#saveSiteBtn').addEventListener('click', () => {
+        overlay.remove();
+        promptSaveToSite();
+      });
+      overlay.querySelector('#browseSiteBtn').addEventListener('click', () => {
+        overlay.remove();
+        showSiteAlbumsBrowser();
+      });
+    });
+
+    function promptSaveToSite() {
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      overlay.innerHTML = `
+        <div class="popup">
+          <p>Save album to site</p>
+          <input type="text" id="albumNameInput" placeholder="Name this album" style="width:100%; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:6px; margin-bottom:12px; box-sizing:border-box;">
+          <div class="popup-buttons">
+            <button class="popup-btn cancel">Cancel</button>
+            <button class="popup-btn make-new">Save</button>
+          </div>
+          <div id="saveSiteStatus" style="margin-top:10px; color:#666; font-size:13px;"></div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      const input = overlay.querySelector('#albumNameInput');
+      const status = overlay.querySelector('#saveSiteStatus');
+      setTimeout(() => input.focus(), 50);
+
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('.popup-btn.make-new').addEventListener('click', async () => {
+        const name = (input.value || '').trim();
+        if (!name) { status.textContent = 'Give it a name first.'; return; }
+        status.textContent = 'Uploading…';
+        try {
+          await uploadAlbumToSite(name);
+          status.textContent = 'Saved!';
+          setTimeout(() => overlay.remove(), 600);
+        } catch (err) {
+          console.error(err);
+          status.textContent = 'Failed: ' + (err.message || err);
+        }
+      });
+    }
+
+    async function showSiteAlbumsBrowser() {
+      const overlay = document.createElement('div');
+      overlay.className = 'popup-overlay';
+      overlay.innerHTML = `
+        <div class="popup" style="text-align:left; max-width:480px;">
+          <p style="text-align:center;">Site albums</p>
+          <div id="siteAlbumsList" style="max-height:60vh; overflow:auto; min-height:60px;">Loading…</div>
+          <div class="popup-buttons" style="margin-top:16px;">
+            <button class="popup-btn cancel">Close</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+      const list = overlay.querySelector('#siteAlbumsList');
+
+      try {
+        const albums = await listSiteAlbums();
+        if (albums.length === 0) {
+          list.innerHTML = '<div style="color:#888; text-align:center; padding:20px;">No albums saved yet.</div>';
+          return;
+        }
+        list.innerHTML = '';
+        albums.forEach(a => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:8px 6px; border-bottom:1px solid #eee;';
+          const date = new Date(a.created_at).toLocaleString();
+          row.innerHTML = `
+            <div style="flex:1; cursor:pointer;">
+              <div style="font-weight:600;">${escapeHtml(a.name)}</div>
+              <div style="color:#888; font-size:12px;">${date}</div>
+            </div>
+            <button class="popup-btn cancel" style="padding:4px 10px; font-size:12px;" data-act="delete">Delete</button>
+          `;
+          row.querySelector('div[style*="cursor"]').addEventListener('click', async () => {
+            overlay.remove();
+            try { await loadSiteAlbumByPath(a.storage_path); }
+            catch (err) { alert('Could not load: ' + err.message); }
+          });
+          row.querySelector('[data-act="delete"]').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm(`Delete "${a.name}"?`)) return;
+            try {
+              await deleteSiteAlbum(a.id, a.storage_path);
+              row.remove();
+            } catch (err) {
+              alert('Delete failed: ' + err.message);
+            }
+          });
+          list.appendChild(row);
+        });
+      } catch (err) {
+        list.innerHTML = `<div style="color:#d9534f; padding:10px;">Could not load albums: ${escapeHtml(err.message || String(err))}</div>`;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    document.getElementById('albumInput').addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const album = JSON.parse(text);
+        await loadAlbum(album);
+      } catch (err) {
+        console.error(err);
+        alert('Could not open album: ' + err.message);
+      }
+    });
+
+    function blobToDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+      });
+    }
+
+    async function dataUrlToBlob(dataUrl) {
+      const res = await fetch(dataUrl);
+      return await res.blob();
+    }
+
+    async function buildAlbumObject() {
+      const slidesData = await Promise.all(slides.map(async s => {
+        const out = {
+          id: s.id,
+          label: s.label || '',
+          filename: s.filename || null,
+          exits: s.exits.map(e => ({
+            selectionData: e.selectionData,
+            targetSlideId: e.targetSlideId,
+            endGame: !!e.endGame,
+          })),
+        };
+        if (s.imageBlob) {
+          out.imageDataUrl = await blobToDataUrl(s.imageBlob);
+          out.imageMimeType = s.imageBlob.type || 'image/png';
+        }
+        return out;
+      }));
+      return {
+        version: 1,
+        type: 'album',
+        savedAt: new Date().toISOString(),
+        nextSlideId,
+        rootSlideId,
+        currentSlideId,
+        slides: slidesData,
+      };
+    }
+
+    async function saveAlbum() {
+      const album = await buildAlbumObject();
+      const json = JSON.stringify(album);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.getElementById('exportLink');
+      a.href = url;
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `album-${stamp}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    // ----- Album sharing via Supabase -----
+    async function uploadAlbumToSite(name) {
+      if (!supa) throw new Error('Supabase client not loaded');
+      const album = await buildAlbumObject();
+      const json = JSON.stringify(album);
+      const blob = new Blob([json], { type: 'application/json' });
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+      const { error: upErr } = await supa.storage
+        .from(SUPABASE_BUCKET)
+        .upload(path, blob, { contentType: 'application/json' });
+      if (upErr) throw upErr;
+      const { error: insErr } = await supa.from('albums').insert({ name, storage_path: path });
+      if (insErr) throw insErr;
+    }
+
+    async function listSiteAlbums() {
+      if (!supa) throw new Error('Supabase client not loaded');
+      const { data, error } = await supa
+        .from('albums')
+        .select('id, name, storage_path, created_at')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function loadSiteAlbumByPath(storagePath) {
+      if (!supa) throw new Error('Supabase client not loaded');
+      const { data, error } = await supa.storage.from(SUPABASE_BUCKET).download(storagePath);
+      if (error) throw error;
+      const text = await data.text();
+      const album = JSON.parse(text);
+      await loadAlbum(album);
+    }
+
+    async function deleteSiteAlbum(id, storagePath) {
+      if (!supa) throw new Error('Supabase client not loaded');
+      // Delete file then row
+      const { error: stErr } = await supa.storage.from(SUPABASE_BUCKET).remove([storagePath]);
+      if (stErr) console.warn('storage delete failed', stErr);
+      const { error: rowErr } = await supa.from('albums').delete().eq('id', id);
+      if (rowErr) throw rowErr;
+    }
+
+    async function loadAlbum(album) {
+      _restoring = true;
+
+      // Wipe IDB and current state
+      await idbWipe();
+      slides.forEach(s => { if (s.objectUrl) { try { URL.revokeObjectURL(s.objectUrl); } catch (_) {} } });
+      document.getElementById('slidesContainer').innerHTML = '';
+      slides = [];
+      nextSlideId = album.nextSlideId || 0;
+      rootSlideId = album.rootSlideId;
+
+      for (const sd of (album.slides || [])) {
+        const s = createSlide({ id: sd.id, label: sd.label || '', filename: sd.filename || null });
+        s.exits = (sd.exits || []).map(e => ({
+          selectionData: e.selectionData,
+          targetSlideId: e.targetSlideId,
+          endGame: !!e.endGame,
+        }));
+        if (sd.imageDataUrl) {
+          try {
+            const blob = await dataUrlToBlob(sd.imageDataUrl);
+            attachImageBlob(s, blob, sd.filename || `image-${s.id}.png`);
+          } catch (err) {
+            console.warn('failed to load image for slide', sd.id, err);
+          }
+        }
+      }
+
+      _restoring = false;
+      const startId = (album.currentSlideId !== undefined && album.currentSlideId !== null) ? album.currentSlideId : rootSlideId;
+      if (slides.length > 0) goToSlide(startId);
+      updateMissingBanner();
+      if (slides.some(s => s.box.querySelector('img'))) {
+        document.getElementById('doneBtn').style.display = 'block';
+        document.getElementById('lockInBtn').style.display = 'block';
+      }
+      scheduleSave();
+    }
+
+    // Whole-page drop handler so users can drop missing photos anywhere
+    window.addEventListener('dragover', (e) => { e.preventDefault(); });
+    window.addEventListener('drop', (e) => {
+      // Only handle if a slide isn't itself handling it (slide drop also catches and re-fires? — let's just be greedy if there are missing photos)
+      const missing = slides.some(s => !s.imageBlob && s.filename);
+      if (!missing) return;
+      const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
+      if (files.length > 0) { e.preventDefault(); attachMissingPhotos(files); }
+    });
+  </script>
+</body>
+</html>
