@@ -400,8 +400,6 @@
 <body>
   <div id="rightToolbar" style="position:fixed; top:15px; right:15px; display:flex; gap:8px; z-index:101; align-items:center;">
     <div class="tool-btn" id="albumBtn">Album</div>
-    <div class="tool-btn" id="saveFileBtn">Save File</div>
-    <div class="tool-btn" id="openFileBtn">Open File</div>
     <div class="tool-btn delete-btn" id="deleteAllBtn">Delete All</div>
     <div class="slide-counter" id="slideCounter" style="display:none;">
       <button class="nav-btn" id="leoBtn">leo</button>
@@ -427,6 +425,13 @@
   <div id="slidesContainer"></div>
 
   <script>
+    // Click-outside-to-close for any .popup-overlay
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.classList && e.target.classList.contains('popup-overlay')) {
+        e.target.remove();
+      }
+    });
+
     // ----- Supabase client -----
     const SUPABASE_URL = 'https://ixquexzeyfwwlanvhgbk.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4cXVleHpleWZ3d2xhbnZoZ2JrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2OTg3MTMsImV4cCI6MjA5MjI3NDcxM30.9dNA30s-y2AusPL7zvccwmOvjc0Mj3jdeRuNDYv0s4Y';
@@ -488,6 +493,7 @@
               selectionData: e.selectionData,
               targetSlideId: e.targetSlideId,
               endGame: !!e.endGame,
+              label: e.label || '',
             })),
           })),
         };
@@ -572,6 +578,7 @@
           selectionData: e.selectionData,
           targetSlideId: e.targetSlideId,
           endGame: !!e.endGame,
+          label: e.label || '',
         }));
         const blob = imageMap.get(sd.id);
         if (blob) attachImageBlob(s, blob, sd.filename || null);
@@ -936,18 +943,28 @@
       overlay.className = 'popup-overlay';
       overlay.innerHTML = `
         <div class="popup">
-          <p>Delete this selection (→ ${target})?</p>
+          <p>Selection (→ ${escapeHtml(target)})</p>
+          <input type="text" id="editSelLabel" placeholder="Selection name" value="${escapeHtml(exit.label || '')}" style="width:100%; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:6px; margin-bottom:14px; box-sizing:border-box;">
           <div class="popup-buttons">
             <button class="popup-btn cancel">Cancel</button>
             <button class="popup-btn end-game">Delete</button>
+            <button class="popup-btn make-new">Save</button>
           </div>
         </div>
       `;
       document.body.appendChild(overlay);
+      const input = overlay.querySelector('#editSelLabel');
+      setTimeout(() => { input.focus(); input.select(); }, 0);
       overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
       overlay.querySelector('.popup-btn.end-game').addEventListener('click', () => {
         overlay.remove();
         s.exits = s.exits.filter(e => e !== exit);
+        redrawCanvas(s);
+        scheduleSave();
+      });
+      overlay.querySelector('.popup-btn.make-new').addEventListener('click', () => {
+        exit.label = input.value.trim();
+        overlay.remove();
         redrawCanvas(s);
         scheduleSave();
       });
@@ -969,15 +986,16 @@
       if (!s.ctx) return;
       s.ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
 
-      // Existing exits drawn faintly with their target slide's label
+      // Existing exits drawn faintly with their own label
       s.exits.forEach(exit => {
         drawShape(s.ctx, s.box, exit.selectionData, '#4a90d9', 0.6, true);
         let text;
-        if (exit.endGame) {
+        if (exit.label) {
+          text = exit.label;
+        } else if (exit.endGame) {
           text = 'end game';
         } else {
-          const target = getSlide(exit.targetSlideId);
-          text = (target && target.label) ? target.label : `#${exit.targetSlideId}`;
+          text = '?';
         }
         const center = shapeCenterBoxCoords(s.box, exit.selectionData);
         if (center) drawLabelBubble(s.ctx, center.x, center.y, text);
@@ -1096,6 +1114,7 @@
       overlay.innerHTML = `
         <div class="popup">
           <p>Where should this selection lead?</p>
+          <input type="text" id="newSelLabel" placeholder="Selection name (optional)" style="width:100%; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:6px; margin-bottom:14px; box-sizing:border-box;">
           <div class="popup-buttons">
             <button class="popup-btn cancel">Cancel</button>
             <button class="popup-btn end-game">End Game</button>
@@ -1105,21 +1124,28 @@
         </div>
       `;
       document.body.appendChild(overlay);
+      const labelInput = overlay.querySelector('#newSelLabel');
+      setTimeout(() => labelInput.focus(), 0);
+      const getLabel = () => labelInput.value.trim();
 
       overlay.querySelector('.popup-btn.make-new').addEventListener('click', () => {
+        const lbl = getLabel();
         overlay.remove();
-        addExitAndCreateChild(s, true);
+        addExitAndCreateChild(s, true, lbl);
       });
       overlay.querySelector('.popup-btn.choose').addEventListener('click', () => {
+        const lbl = getLabel();
         overlay.remove();
-        startPickingExistingSlide(s);
+        startPickingExistingSlide(s, lbl);
       });
       overlay.querySelector('.popup-btn.end-game').addEventListener('click', () => {
+        const lbl = getLabel();
         overlay.remove();
         s.exits.push({
           selectionData: s.draftSelection,
           targetSlideId: null,
           endGame: true,
+          label: lbl,
         });
         s.draftSelection = null;
         s.draftBoxRect = null;
@@ -1140,19 +1166,24 @@
     let playbackPath = [];      // ids visited during the most recent playthrough
     let lockedSession = false;  // true if the current/most-recent play was Lock In
 
-    function startPickingExistingSlide(s) {
+    let pendingExitLabel = '';
+    function startPickingExistingSlide(s, label) {
       pickingForSlide = s;
+      pendingExitLabel = label || '';
       showOverview();
     }
 
     function pickSlideAsTarget(targetId) {
       const s = pickingForSlide;
+      const lbl = pendingExitLabel;
       pickingForSlide = null;
+      pendingExitLabel = '';
       document.getElementById('overview').classList.remove('active');
       if (!s || !s.draftSelection) return;
       s.exits.push({
         selectionData: s.draftSelection,
         targetSlideId: targetId,
+        label: lbl,
       });
       s.draftSelection = null;
       s.draftBoxRect = null;
@@ -1174,11 +1205,12 @@
       redrawCanvas(s);
     }
 
-    function addExitAndCreateChild(s, returnAfterImage) {
+    function addExitAndCreateChild(s, returnAfterImage, label) {
       const child = createSlide();
       s.exits.push({
         selectionData: s.draftSelection,
         targetSlideId: child.id,
+        label: label || '',
       });
       s.draftSelection = null;
       s.draftBoxRect = null;
@@ -1201,12 +1233,9 @@
       const overlay = document.createElement('div');
       overlay.className = 'popup-overlay';
       // Skip index 0 (the starting slide — wasn't a choice).
-      // Each remaining entry is a selection the player clicked, labeled by
-      // the slide they landed on.
       const choices = playbackPath.slice(1);
-      const items = choices.map((id, i) => {
-        const s = getSlide(id);
-        const label = s && s.label ? s.label : `#${id}`;
+      const items = choices.map((step, i) => {
+        const label = step.label || '?';
         return `<div style="padding:6px 0; border-bottom:1px solid #eee;"><strong>${i + 1}:</strong> ${escapeHtml(label)}</div>`;
       }).join('');
       overlay.innerHTML = `
@@ -1307,8 +1336,13 @@
 
       function handleExitClick(exit) {
         if (!exit) return;
-        if (exit.endGame) exitPresentation();
-        else goToSlide(exit.targetSlideId);
+        if (exit.endGame) {
+          playbackPath.push({ id: null, label: exit.label || 'end game' });
+          exitPresentation();
+        } else {
+          playbackPath.push({ id: exit.targetSlideId, label: exit.label || '' });
+          goToSlide(exit.targetSlideId);
+        }
       }
       c.addEventListener('click', (e) => {
         const rect = c.getBoundingClientRect();
@@ -1333,7 +1367,8 @@
       if (!presenting) { updateCounter(); scheduleSave(); }
 
       if (presenting) {
-        if (playbackPath[playbackPath.length - 1] !== id) playbackPath.push(id);
+        const last = playbackPath[playbackPath.length - 1];
+        if (!last || last.id !== id) playbackPath.push({ id, label: '' });
         requestAnimationFrame(() => {
           const s = getSlide(id);
           if (s) addClickableArea(s);
@@ -1721,11 +1756,12 @@ function attachMissingPhotos(imageFiles) {
     }
 
     // ----- Album (single self-contained file with images embedded) -----
-    document.getElementById('albumBtn').addEventListener('click', () => {
+    function openAlbumPopup() {
       const overlay = document.createElement('div');
       overlay.className = 'popup-overlay';
       overlay.innerHTML = `
-        <div class="popup">
+        <div class="popup" style="position:relative;">
+          <button class="popup-btn choose" id="deviceBtn" style="position:absolute; top:12px; left:12px; padding:6px 14px; font-size:14px;">Device</button>
           <p>Album</p>
           <div class="popup-buttons" style="flex-wrap:wrap;">
             <button class="popup-btn cancel">Cancel</button>
@@ -1736,6 +1772,11 @@ function attachMissingPhotos(imageFiles) {
       `;
       document.body.appendChild(overlay);
       overlay.querySelector('.popup-btn.cancel').addEventListener('click', () => overlay.remove());
+      overlay.querySelector('#deviceBtn').addEventListener('click', () => {
+        const rect = overlay.querySelector('.popup').getBoundingClientRect();
+        overlay.remove();
+        openDevicePopup(rect.width, rect.height);
+      });
       overlay.querySelector('#saveSiteBtn').addEventListener('click', () => {
         overlay.remove();
         promptSaveToSite();
@@ -1744,20 +1785,42 @@ function attachMissingPhotos(imageFiles) {
         overlay.remove();
         showSiteAlbumsBrowser();
       });
-    });
+    }
 
-    document.getElementById('saveFileBtn').addEventListener('click', async () => {
-      try {
-        await saveAlbum();
-      } catch (err) {
-        console.error(err);
-        alert('Could not save file: ' + err.message);
-      }
-    });
+    function openDevicePopup(w, h) {
+      const devOverlay = document.createElement('div');
+      devOverlay.className = 'popup-overlay';
+      const sizeStyle = (w && h) ? `width:${w}px; height:${h}px;` : '';
+      devOverlay.innerHTML = `
+        <div class="popup" style="position:relative; box-sizing:border-box; ${sizeStyle}">
+          <button class="popup-btn no" id="backBtn" style="position:absolute; top:12px; left:12px; padding:6px 14px; font-size:14px;">Back</button>
+          <p>Device</p>
+          <div class="popup-buttons" style="flex-wrap:wrap;">
+            <button class="popup-btn make-new" id="saveDeviceBtn">Save to Device</button>
+            <button class="popup-btn choose" id="uploadDeviceBtn">Upload from Device</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(devOverlay);
+      devOverlay.querySelector('#backBtn').addEventListener('click', () => {
+        devOverlay.remove();
+        openAlbumPopup();
+      });
+      devOverlay.querySelector('#saveDeviceBtn').addEventListener('click', async () => {
+        try {
+          await saveAlbum();
+        } catch (err) {
+          console.error(err);
+          alert('Could not save file: ' + err.message);
+        }
+      });
+      devOverlay.querySelector('#uploadDeviceBtn').addEventListener('click', () => {
+        devOverlay.remove();
+        document.getElementById('albumInput').click();
+      });
+    }
 
-    document.getElementById('openFileBtn').addEventListener('click', () => {
-      document.getElementById('albumInput').click();
-    });
+    document.getElementById('albumBtn').addEventListener('click', openAlbumPopup);
 
     function promptSaveToSite() {
       const overlay = document.createElement('div');
@@ -1892,6 +1955,7 @@ function attachMissingPhotos(imageFiles) {
             selectionData: e.selectionData,
             targetSlideId: e.targetSlideId,
             endGame: !!e.endGame,
+            label: e.label || '',
           })),
         };
         if (s.imageBlob) {
@@ -1984,6 +2048,7 @@ function attachMissingPhotos(imageFiles) {
           selectionData: e.selectionData,
           targetSlideId: e.targetSlideId,
           endGame: !!e.endGame,
+          label: e.label || '',
         }));
         if (sd.imageDataUrl) {
           try {
